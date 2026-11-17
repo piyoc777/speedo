@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Night Drive OBD Speedometer</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--y:#fcee0a;--c:#00f0ff;--m:#ff2a6d;--bg:#07070c;--panel:#11111c;--dim:#2b2b3a;--tx:#e9e9f2;color-scheme:dark;box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;justify-content:center;padding:10px 0;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 3px),radial-gradient(ellipse at 50% 20%,#1a1630,var(--bg) 70%);
+  background-color:var(--bg);color:var(--tx);font-family:"Rajdhani","Hiragino Sans","Noto Sans JP",sans-serif;
+  -webkit-user-select:none;user-select:none;touch-action:manipulation}
+.chamfer{--k:14px;clip-path:polygon(0 0,calc(100% - var(--k)) 0,100% var(--k),100% 100%,var(--k) 100%,0 calc(100% - var(--k)))}
+.frame{width:min(94vw,440px);padding:2px;background:var(--y);align-self:flex-start}
+.panel{background:var(--panel);padding:14px 14px 16px}
+.bar{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+#status{flex:1;font-size:14px;color:#8c8ca3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#status.ok{color:var(--c)}
+button{font:700 17px/1 "Rajdhani","Hiragino Sans",sans-serif;border:0;padding:11px 16px;cursor:pointer;--k:8px;color:#000;background:var(--y)}
+button.sub{background:var(--dim);color:var(--tx)}
+button:focus-visible{outline:3px solid var(--c);outline-offset:2px}
+.gauge{position:relative;width:100%;aspect-ratio:1}
+.gauge svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.readout{position:absolute;left:0;right:0;top:36%;text-align:center}
+#speed{display:inline-block;font-weight:700;font-size:clamp(70px,24vw,112px);line-height:.9;letter-spacing:.02em;color:var(--y);text-shadow:0 0 18px rgba(252,238,10,.45)}
+#speed i{font-style:normal;color:#4a4720;text-shadow:none}
+.unit{font-size:18px;letter-spacing:.2em;color:var(--c);margin-top:4px}
+.gear{position:absolute;left:50%;bottom:6%;transform:translateX(-50%);width:54px;height:54px;background:var(--y);color:#000;display:flex;align-items:center;justify-content:center;font-size:36px;font-weight:700;--k:10px}
+.rpm{display:grid;grid-template-columns:repeat(24,1fr);gap:3px;margin-top:10px;height:22px}
+.rpm span{background:var(--dim);transform:skewX(-20deg)}
+.rpm span.on{background:var(--c);box-shadow:0 0 8px var(--c)}
+.rpm span.on.hot{background:var(--m);box-shadow:0 0 8px var(--m)}
+.temps{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.tile{background:#0b0b14;border:2px solid var(--dim);padding:8px 12px;--k:10px}
+.tile small{display:block;color:#8c8ca3;font-size:14px}
+.tile b{font-size:32px;color:var(--y)}
+details{margin-top:12px;font-size:14px;color:#9a9ab0}
+summary{cursor:pointer}
+.cal{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:8px}
+.cal button{padding:10px 0;font-size:16px}
+.glitch{animation:gl .22s steps(2) 1}
+@keyframes gl{25%{transform:translate(-3px,1px);text-shadow:3px 0 var(--m),-3px 0 var(--c)}50%{transform:translate(3px,-1px);text-shadow:-3px 0 var(--m),3px 0 var(--c)}100%{transform:none}}
+@media (prefers-reduced-motion:reduce){.glitch{animation:none}}
+</style>
+</head>
+<body>
+<div class="frame chamfer"><div class="panel chamfer">
+  <div class="bar">
+    <div id="status">未接続</div>
+    <button id="demo" class="sub chamfer" type="button">デモ</button>
+    <button id="conn" class="chamfer" type="button">接続</button>
+  </div>
+  <div class="gauge">
+    <svg viewBox="0 0 400 400" aria-hidden="true">
+      <defs>
+        <mask id="seg"><path id="segPath" fill="none" stroke="#fff" stroke-width="16" pathLength="100" stroke-dasharray="1.2 .5"/></mask>
+        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      <path id="track" fill="none" stroke="#2b2b3a" stroke-width="16" pathLength="100" stroke-dasharray="1.2 .5"/>
+      <g mask="url(#seg)" filter="url(#glow)"><path id="prog" fill="none" stroke="#fcee0a" stroke-width="16" pathLength="100" stroke-dasharray="0 200"/></g>
+      <g id="ticks"></g>
+    </svg>
+    <div class="readout"><div id="speed"><i>00</i>0</div><div class="unit">KM/H</div></div>
+    <div class="gear chamfer" id="gear">N</div>
+  </div>
+  <div class="rpm" id="rpm"></div>
+  <div class="temps">
+    <div class="tile chamfer"><small>水温</small><b id="cool">--</b></div>
+    <div class="tile chamfer"><small>油温</small><b id="oil">--</b></div>
+  </div>
+  <details>
+    <summary>ギア推定の調整</summary>
+    <p>走行中に、いま入っているギアのボタンを押すと、そのギアの回転比を登録します。</p>
+    <div class="cal" id="cal"></div>
+  </details>
+</div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const MAX = 300, CX = 200, CY = 200, R = 150, NS = "http://www.w3.org/2000/svg";
+const pt = (a, r) => { const t = a * Math.PI / 180; return [CX + r * Math.cos(t), CY + r * Math.sin(t)]; };
+const [x1, y1] = pt(135, R), [x2, y2] = pt(405, R);
+["track", "segPath", "prog"].forEach(id => $(id).setAttribute("d", `M${x1} ${y1}A${R} ${R} 0 1 1 ${x2} ${y2}`));
+for (let s = 0; s <= MAX; s += 10) {
+  const a = 135 + 270 * s / MAX, major = s % 50 === 0;
+  const [ax, ay] = pt(a, R + 14), [bx, by] = pt(a, R + (major ? 28 : 21));
+  const l = document.createElementNS(NS, "line");
+  l.setAttribute("x1", ax); l.setAttribute("y1", ay); l.setAttribute("x2", bx); l.setAttribute("y2", by);
+  l.setAttribute("stroke", major ? "#00f0ff" : "#4b4b60"); l.setAttribute("stroke-width", major ? 2.5 : 1.5);
+  $("ticks").appendChild(l);
+  if (major) {
+    const [tx, ty] = pt(a, R - 24), t = document.createElementNS(NS, "text");
+    t.setAttribute("x", tx); t.setAttribute("y", ty + 5); t.setAttribute("text-anchor", "middle");
+    t.setAttribute("fill", "#9a9ab0"); t.setAttribute("font-size", "15"); t.setAttribute("font-weight", "700");
+    t.setAttribute("font-family", "Rajdhani,sans-serif"); t.textContent = s; $("ticks").appendChild(t);
+  }
+}
+for (let i = 0; i < 24; i++) $("rpm").appendChild(document.createElement("span"));
+const segs = [...$("rpm").children];
+
+// ギア推定 (rpm / km/h の比)
+let ratios = [110, 62, 42, 31, 25, 21];
+try { const r = JSON.parse(localStorage.getItem("ratios")); if (Array.isArray(r) && r.length === 6) ratios = r; } catch (e) {}
+function estGear(s, r) {
+  if (s < 5 || r < 500) return null;
+  const x = Math.log(r / s); let b = 0, bd = 1e9;
+  ratios.forEach((q, i) => { const d = Math.abs(x - Math.log(q)); if (d < bd) { bd = d; b = i; } });
+  return b + 1;
+}
+for (let i = 0; i < 6; i++) {
+  const b = document.createElement("button"); b.type = "button"; b.className = "sub chamfer"; b.textContent = i + 1;
+  b.onclick = () => {
+    if (v < 10 || rpm < 500) return setStatus("走行中に押してください");
+    ratios[i] = rpm / v;
+    try { localStorage.setItem("ratios", JSON.stringify(ratios)); } catch (e) {}
+    setStatus(`${i + 1}速を登録: ${Math.round(ratios[i])}`, 1);
+  };
+  $("cal").appendChild(b);
+}
+
+// 状態
+let v = 0, rpm = 0, coolant = null, oil = null, oilSup = false, gear = null, lastGear = null;
+let tx = null, rx = null, dev = null, buf = "", pend = null, run = false, session = 0, demoTimer = null;
+function setStatus(t, ok) { $("status").textContent = t; $("status").className = ok ? "ok" : ""; }
+
+// ELM327 (Web Bluetooth)
+const SERVICES = [0xfff0, 0xffe0, 0x18f0, "e7810a71-73ae-499d-8c15-faa9aef0c3f2", "49535343-fe7d-4ae5-8fa9-9fafd205e455"];
+function onData(e) {
+  buf += new TextDecoder().decode(e.target.value);
+  if (buf.includes(">")) { const t = buf; buf = ""; const p = pend; if (p) { pend = null; p(t); } }
+}
+function send(cmd, ms = 2000) {
+  buf = "";
+  return new Promise(res => {
+    pend = res;
+    const d = new TextEncoder().encode(cmd + "\r");
+    (tx.properties.writeWithoutResponse ? tx.writeValueWithoutResponse(d) : tx.writeValue(d)).catch(() => res(""));
+    setTimeout(() => { if (pend === res) { pend = null; res(""); } }, ms);
+  });
+}
+async function pid(p) {
+  const h = p.toString(16).padStart(2, "0").toUpperCase();
+  const r = (await send("01" + h)).replace(/[\s>]/g, "").toUpperCase();
+  const i = r.indexOf("41" + h); if (i < 0) return null;
+  const body = r.slice(i + 4), b = [];
+  for (let k = 0; k + 2 <= body.length; k += 2) { const n = parseInt(body.substr(k, 2), 16); if (isNaN(n)) break; b.push(n); }
+  return b;
+}
+async function supported() {
+  const s = new Set();
+  for (let base = 0; base <= 0x40; base += 0x20) {
+    const b = await pid(base); if (!b || b.length < 4) break;
+    for (let i = 0; i < 32; i++) if ((b[i >> 3] >> (7 - i % 8)) & 1) s.add(base + i + 1);
+    if (!s.has(base + 0x20)) break;
+  }
+  return s;
+}
+async function poll(sup, my) {
+  let n = 0;
+  while (run && my === session) {
+    const s = await pid(0x0d); if (s && s.length) v = s[0];
+    const r = await pid(0x0c); if (r && r.length > 1) rpm = (256 * r[0] + r[1]) / 4;
+    if (n % 10 === 0) {
+      if (sup.has(5)) { const t = await pid(5); if (t && t.length) coolant = t[0] - 40; }
+      if (oilSup) { const t = await pid(0x5c); if (t && t.length) oil = t[0] - 40; }
+    }
+    n++;
+  }
+}
+function stop() {
+  session++; run = false;
+  if (demoTimer) { clearInterval(demoTimer); demoTimer = null; }
+  try { if (dev && dev.gatt.connected) dev.gatt.disconnect(); } catch (e) {}
+}
+async function connect() {
+  if (!navigator.bluetooth) return setStatus("Web Bluetooth非対応です。Bluefyで開いてください");
+  stop(); const my = session;
+  try {
+    dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: SERVICES });
+    setStatus("接続中…");
+    const srv = await dev.gatt.connect();
+    dev.addEventListener("gattserverdisconnected", () => { if (my === session) { run = false; setStatus("切断されました"); } });
+    tx = rx = null;
+    for (const s of await srv.getPrimaryServices()) {
+      let t = null, r = null;
+      for (const c of await s.getCharacteristics()) {
+        const p = c.properties;
+        if ((p.notify || p.indicate) && !r) r = c;
+        if ((p.write || p.writeWithoutResponse) && !t) t = c;
+      }
+      if (t && r) { tx = t; rx = r; break; }
+    }
+    if (!tx) throw new Error("通信用の特性が見つかりません");
+    await rx.startNotifications(); rx.addEventListener("characteristicvaluechanged", onData);
+    await send("ATZ", 3000);
+    for (const c of ["ATE0", "ATL0", "ATS0", "ATH0", "ATSP0"]) await send(c);
+    const sup = await supported(); oilSup = sup.has(0x5c);
+    setStatus("接続済み: " + (dev.name || "OBD"), 1);
+    run = true;
+    try { navigator.wakeLock && navigator.wakeLock.request("screen").catch(() => {}); } catch (e) {}
+    poll(sup, my);
+  } catch (e) { if (my === session) setStatus("接続失敗: " + e.message); }
+}
+function demo() {
+  stop(); oilSup = true; setStatus("デモ走行中", 1);
+  const t0 = performance.now();
+  demoTimer = setInterval(() => {
+    const t = (performance.now() - t0) / 1000;
+    v = Math.max(0, Math.min(MAX, 95 + 95 * Math.sin(t * .35 - 1.57)));
+    rpm = 1000 + ((v % 45) / 45) * 5200;
+    coolant = 88 + 3 * Math.sin(t * .2); oil = 98 + 6 * Math.sin(t * .1);
+  }, 60);
+}
+$("conn").onclick = connect; $("demo").onclick = demo;
+
+// 描画
+let dv = 0, dr = 0, last = performance.now();
+function tempTile(el, val, hot, unsup) {
+  if (unsup) { el.textContent = "未対応"; el.style.cssText = "font-size:22px;color:#55556a"; return; }
+  el.style.fontSize = ""; el.textContent = val == null ? "--" : Math.round(val) + "°C";
+  el.style.color = val == null ? "" : val >= hot ? "#ff2a6d" : val < 60 ? "#00f0ff" : "#fcee0a";
+}
+function frame(now) {
+  const dt = Math.min(.1, (now - last) / 1000); last = now;
+  const k = Math.min(1, dt * 8); dv += (v - dv) * k; dr += (rpm - dr) * k;
+  const g = estGear(v, rpm);
+  if (g && lastGear && g !== lastGear) { $("speed").classList.remove("glitch"); void $("speed").offsetWidth; $("speed").classList.add("glitch"); }
+  lastGear = g;
+  const s = String(Math.round(dv)).padStart(3, "0"), z = Math.min(s.match(/^0*/)[0].length, 2);
+  $("speed").innerHTML = `<i>${s.slice(0, z)}</i>${s.slice(z)}`;
+  $("gear").textContent = g || "N";
+  const p = Math.min(100, dv / MAX * 100);
+  $("prog").setAttribute("stroke-dasharray", `${p} 200`);
+  $("prog").setAttribute("stroke", p > 88 ? "#ff2a6d" : "#fcee0a");
+  const lit = Math.round(Math.min(1, dr / 7500) * 24);
+  segs.forEach((el, i) => { el.className = i < lit ? (i >= 19 ? "on hot" : "on") : ""; });
+  tempTile($("cool"), coolant, 105, false);
+  tempTile($("oil"), oil, 130, run && !oilSup);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
